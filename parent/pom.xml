@@ -186,6 +186,19 @@
         </developer>
     </developers>
 
+    <distributionManagement>
+        <repository>
+            <id>nexus-release</id>
+            <name>Local Nexus Repository</name>
+            <url>http://172.30.10.160:8081/nexus/content/repositories/releases/</url>
+        </repository>
+        <snapshotRepository>
+            <id>nexus-snapshot</id>
+            <name>Local Nexus Repository</name>
+            <url>http://172.30.10.160:8081/nexus/content/repositories/snapshots/</url>
+        </snapshotRepository>
+    </distributionManagement>
+
     <repositories>
         <repository>
             <releases>

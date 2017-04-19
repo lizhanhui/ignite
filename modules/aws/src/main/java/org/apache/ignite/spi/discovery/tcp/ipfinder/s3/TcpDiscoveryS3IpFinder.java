@@ -21,6 +21,7 @@ import com.amazonaws.AmazonClientException;
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSCredentialsProvider;
+import com.amazonaws.regions.Region;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.model.ObjectListing;
@@ -108,6 +109,8 @@ public class TcpDiscoveryS3IpFinder extends TcpDiscoveryIpFinderAdapter {
 
     /** Amazon client configuration. */
     private ClientConfiguration cfg;
+
+    private Region region;
 
     /** AWS Credentials. */
     @GridToStringExclude
@@ -299,9 +302,15 @@ public class TcpDiscoveryS3IpFinder extends TcpDiscoveryIpFinderAdapter {
      * @return Client instance to use to connect to AWS.
      */
     private AmazonS3Client createAmazonS3Client() {
-        return cfg != null
+        AmazonS3Client client =  cfg != null
             ? (cred != null ? new AmazonS3Client(cred, cfg) : new AmazonS3Client(credProvider, cfg))
             : (cred != null ? new AmazonS3Client(cred) : new AmazonS3Client(credProvider));
+
+        if (null != region) {
+            client.setRegion(region);
+        }
+
+        return client;
     }
 
     /**
@@ -329,6 +338,20 @@ public class TcpDiscoveryS3IpFinder extends TcpDiscoveryIpFinderAdapter {
     public TcpDiscoveryS3IpFinder setClientConfiguration(ClientConfiguration cfg) {
         this.cfg = cfg;
 
+        return this;
+    }
+
+    /**
+     * <p>
+     *  Set Amazon client region.
+     * </p>
+     *
+     * @param region Region of the AWS S3.
+     * @return {@code this} for chaining.
+     */
+    @IgniteSpiConfiguration(optional = true)
+    public TcpDiscoveryS3IpFinder setRegion(Region region) {
+        this.region = region;
         return this;
     }
 

@@ -144,6 +144,13 @@
                 <groupId>org.apache.felix</groupId>
                 <artifactId>maven-bundle-plugin</artifactId>
             </plugin>
+
+            <plugin>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <classifier>yeahmobi</classifier>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>
