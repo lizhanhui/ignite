@@ -21,13 +21,16 @@ import com.amazonaws.AmazonClientException;
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSCredentialsProvider;
-import com.amazonaws.regions.Region;
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
+import com.amazonaws.regions.Regions;
 import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3Client;
+import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.ObjectListing;
 import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.S3ObjectSummary;
 import java.io.ByteArrayInputStream;
+import java.net.Inet6Address;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.Collection;
 import java.util.LinkedList;
@@ -99,6 +102,8 @@ public class TcpDiscoveryS3IpFinder extends TcpDiscoveryIpFinderAdapter {
     /** Bucket name. */
     private String bucketName;
 
+    private String prefix;
+
     /** Init guard. */
     @GridToStringExclude
     private final AtomicBoolean initGuard = new AtomicBoolean();
@@ -110,7 +115,7 @@ public class TcpDiscoveryS3IpFinder extends TcpDiscoveryIpFinderAdapter {
     /** Amazon client configuration. */
     private ClientConfiguration cfg;
 
-    private Region region;
+    private Regions region;
 
     /** AWS Credentials. */
     @GridToStringExclude
@@ -134,12 +139,20 @@ public class TcpDiscoveryS3IpFinder extends TcpDiscoveryIpFinderAdapter {
         Collection<InetSocketAddress> addrs = new LinkedList<>();
 
         try {
-            ObjectListing list = s3.listObjects(bucketName);
+            ObjectListing list;
+
+            if (isNullOrEmpty(prefix)) {
+                list = s3.listObjects(bucketName);
+            } else {
+                list = s3.listObjects(bucketName, prefix);
+            }
 
             while (true) {
                 for (S3ObjectSummary sum : list.getObjectSummaries()) {
                     String key = sum.getKey();
-
+                    if (!isNullOrEmpty(prefix)) {
+                        key = key.substring(prefix.length() + 1);
+                    }
                     StringTokenizer st = new StringTokenizer(key, DELIM);
 
                     if (st.countTokens() != 2)
@@ -167,10 +180,11 @@ public class TcpDiscoveryS3IpFinder extends TcpDiscoveryIpFinderAdapter {
                     }
                 }
 
-                if (list.isTruncated())
+                if (list.isTruncated()) {
                     list = s3.listNextBatchOfObjects(list);
-                else
+                } else {
                     break;
+                }
             }
         }
         catch (AmazonClientException e) {
@@ -187,6 +201,12 @@ public class TcpDiscoveryS3IpFinder extends TcpDiscoveryIpFinderAdapter {
         initClient();
 
         for (InetSocketAddress addr : addrs) {
+
+            InetAddress inetAddress = addr.getAddress();
+            if (inetAddress.isAnyLocalAddress() || inetAddress.isLoopbackAddress() || inetAddress instanceof Inet6Address) {
+                continue;
+            }
+
             String key = key(addr);
 
             try {
@@ -229,6 +249,10 @@ public class TcpDiscoveryS3IpFinder extends TcpDiscoveryIpFinderAdapter {
 
         SB sb = new SB();
 
+        if (!isNullOrEmpty(prefix)) {
+            sb.a(prefix).a("/");
+        }
+
         sb.a(addr.getAddress().getHostAddress())
             .a(DELIM)
             .a(addr.getPort());
@@ -239,7 +263,7 @@ public class TcpDiscoveryS3IpFinder extends TcpDiscoveryIpFinderAdapter {
     /**
      * Amazon s3 client initialization.
      *
-     * @throws org.apache.ignite.spi.IgniteSpiException In case of error.
+     * @throws IgniteSpiException In case of error.
      */
     @SuppressWarnings({"BusyWait"})
     private void initClient() throws IgniteSpiException {
@@ -301,16 +325,26 @@ public class TcpDiscoveryS3IpFinder extends TcpDiscoveryIpFinderAdapter {
      *
      * @return Client instance to use to connect to AWS.
      */
-    private AmazonS3Client createAmazonS3Client() {
-        AmazonS3Client client =  cfg != null
-            ? (cred != null ? new AmazonS3Client(cred, cfg) : new AmazonS3Client(credProvider, cfg))
-            : (cred != null ? new AmazonS3Client(cred) : new AmazonS3Client(credProvider));
+    private AmazonS3 createAmazonS3Client() {
+        AmazonS3ClientBuilder s3ClientBuilder = AmazonS3ClientBuilder.standard();
 
-        if (null != region) {
-            client.setRegion(region);
+        if (null != cred) {
+            s3ClientBuilder.withCredentials(new AWSStaticCredentialsProvider(cred));
         }
 
-        return client;
+        if (null != credProvider) {
+            s3ClientBuilder.withCredentials(credProvider);
+        }
+
+        if (null != cfg) {
+            s3ClientBuilder.withClientConfiguration(cfg);
+        }
+
+        if (null != region) {
+            s3ClientBuilder.withRegion(region);
+        }
+
+        return s3ClientBuilder.build();
     }
 
     /**
@@ -350,8 +384,22 @@ public class TcpDiscoveryS3IpFinder extends TcpDiscoveryIpFinderAdapter {
      * @return {@code this} for chaining.
      */
     @IgniteSpiConfiguration(optional = true)
-    public TcpDiscoveryS3IpFinder setRegion(Region region) {
+    public TcpDiscoveryS3IpFinder setRegion(Regions region) {
         this.region = region;
+        return this;
+    }
+
+    /**
+     * Set prefix to use as sub-directory.
+     * @param prefix bucket directory.
+     * @return {@code this} for chaining.
+     */
+    @IgniteSpiConfiguration(optional = true)
+    public TcpDiscoveryS3IpFinder setPrefix(String prefix) {
+        if (null != prefix && prefix.endsWith("/")) {
+            throw new IllegalArgumentException("Please remove trailing '/'");
+        }
+        this.prefix = prefix;
         return this;
     }
 
@@ -388,12 +436,15 @@ public class TcpDiscoveryS3IpFinder extends TcpDiscoveryIpFinderAdapter {
     /** {@inheritDoc} */
     @Override public TcpDiscoveryS3IpFinder setShared(boolean shared) {
         super.setShared(shared);
-
         return this;
     }
 
     /** {@inheritDoc} */
     @Override public String toString() {
         return S.toString(TcpDiscoveryS3IpFinder.class, this, "super", super.toString());
+    }
+
+    private static boolean isNullOrEmpty(String s) {
+        return null == s || s.trim().isEmpty();
     }
 }
